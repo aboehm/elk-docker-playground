@@ -1,0 +1,59 @@
+#!/bin/sh
+
+INSTANCES_DATA=".instances"
+
+instances() {
+	cat $INSTANCES_DATA
+}
+clear_instances() {
+	> $INSTANCES_DATA
+}
+add_instance() {
+	echo $1 >> $INSTANCES_DATA
+}
+
+export ES_CLUSTER_OPTS="-Des.cluster.name=es-cluster0 -Dhttp.cors.enabled=true -Dhttp.cors.allow-origin=/.*/"
+
+case "x$1" in
+	xinit)
+		clear_instances
+
+		add_instance `docker run --name es0 -p 127.0.0.1:9200:9200 --net="bridge" -d elasticsearch elasticsearch \
+			-Des.node.name=es0 \
+			-Dnode.master=true \
+			-Dnode.data=true \
+			-Dindex.analysis.analyzer.default.tokenizer=keyword \
+			$ES_CLUSTER_OPTS`
+		sleep 3
+
+		add_instance `docker run --name es1 --net="container:es0" -d elasticsearch elasticsearch \
+			-Des.node.name=es1 \
+			$ES_CLUSTER_OPTS`
+		sleep 3
+
+		add_instance `docker run --name es2 --net="container:es0" -d elasticsearch elasticsearch \
+			-Des.node.name=es2 \
+			$ES_CLUSTER_OPTS`
+		sleep 3
+
+		add_instance `docker run --name kibana0 -p 127.0.0.1:5601:5601 --link es0 -e ELASTICSEARCH_URL=http://es0:9200 -d kibana`
+		sleep 3
+
+		docker stop `instances`
+		;;
+
+	xrun)
+		docker run --name logstash0 -p 127.0.0.1:8516:516  -it --rm -v "$PWD":/cfg logstash logstash -f /cfg/logstash.conf 
+		docker rm logstash0
+		;;
+
+	xstart|xstop|xkill|xrm)
+		[ "`instances`" ] && docker $1 `instances`
+		[ "x$1" = "xrm" ] && clear_instances 
+		;;
+	
+	*)
+		echo "$0 (start|stop|init|kill|rm)"
+		;;
+esac
+
